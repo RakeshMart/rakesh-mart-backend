@@ -10,9 +10,23 @@ app = Flask(__name__)
 CORS(app)  # GitHub Pages se request allow karne ke liye
 
 # Firebase initialize — environment variable se
-firebase_creds = json.loads(os.environ.get('FIREBASE_SERVICE_ACCOUNT'))
-cred = credentials.Certificate(firebase_creds)
-firebase_admin.initialize_app(cred)
+firebase_creds_raw = os.environ.get(
+    'FIREBASE_SERVICE_ACCOUNT'
+)
+
+if firebase_creds_raw:
+
+    firebase_creds = json.loads(
+        firebase_creds_raw
+    )
+
+    cred = credentials.Certificate(
+        firebase_creds
+    )
+
+    firebase_admin.initialize_app(
+        cred
+    )
 
 SHEET_SCRIPT_URL = os.environ.get('SHEET_SCRIPT_URL')
 
