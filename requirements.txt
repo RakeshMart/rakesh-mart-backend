@@ -1,6 +1,5 @@
 flask
-firebase-admin
-google-auth
+pywebpush
 requests
 flask-cors
 gunicorn
