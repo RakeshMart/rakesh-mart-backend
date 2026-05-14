@@ -7,13 +7,10 @@ import json
 app = Flask(__name__)
 CORS(app)
 
-# VAPID keys — Render environment variables mein daalni hain
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY')
 VAPID_EMAIL = os.environ.get('VAPID_EMAIL', 'mailto:rakeshmart@gmail.com')
 
-# Tokens store (memory mein — Render restart pe reset hoga)
-# Isliye hum file mein save karenge
 TOKENS_FILE = 'tokens.json'
 
 def load_tokens():
@@ -38,19 +35,13 @@ def register_token():
     token_str = data.get('token')
     if not token_str:
         return jsonify({'error': 'No token'}), 400
-    
     try:
-        # token ek JSON string hai (Web Push subscription object)
         sub = json.loads(token_str) if isinstance(token_str, str) else token_str
         endpoint = sub.get('endpoint', '')
-        
         tokens = load_tokens()
-        
-        # Duplicate check (endpoint se)
         existing = [t for t in tokens if t.get('endpoint') != endpoint]
         existing.append(sub)
         save_tokens(existing)
-        
         print(f'Token registered. Total: {len(existing)}')
         return jsonify({'success': True})
     except Exception as e:
@@ -59,7 +50,6 @@ def register_token():
 
 @app.route('/send-notification', methods=['POST'])
 def send_notification():
-    # Auth check
     auth = request.headers.get('X-Auth-Key')
     if auth != os.environ.get('ADMIN_SECRET'):
         return jsonify({'error': 'Unauthorized'}), 401
@@ -67,7 +57,7 @@ def send_notification():
     data = request.json
     title = data.get('title', '🛒 Rakesh Mart')
     body = data.get('body', '')
-    image = data.get('image', '')  # Sheet D column
+    image = data.get('image', '')
 
     if not body:
         return jsonify({'error': 'No message'}), 400
@@ -96,34 +86,23 @@ def send_notification():
             valid_tokens.append(sub)
         except WebPushException as e:
             print(f'WebPush failed: {e}')
-            # 410 = subscription expired, remove karo
             if '410' in str(e) or '404' in str(e):
-                print('Removing expired token')
+                print('Expired token removed')
             else:
-                valid_tokens.append(sub)  # Other errors mein rakhlo
+                valid_tokens.append(sub)
             fail_count += 1
         except Exception as e:
-            print(f'Unknown error: {e}')
+            print(f'Error: {e}')
             valid_tokens.append(sub)
             fail_count += 1
 
     save_tokens(valid_tokens)
-
-    return jsonify({
-        'success': True,
-        'sent': success_count,
-        'failed': fail_count,
-        'total_tokens': len(valid_tokens)
-    })
+    return jsonify({'success': True, 'sent': success_count, 'failed': fail_count})
 
 @app.route('/health', methods=['GET'])
 def health():
     tokens = load_tokens()
-    return jsonify({
-        'status': 'ok',
-        'tokens': len(tokens),
-        'vapid_ready': bool(VAPID_PRIVATE_KEY)
-    })
+    return jsonify({'status': 'ok', 'tokens': len(tokens), 'vapid_ready': bool(VAPID_PRIVATE_KEY)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
