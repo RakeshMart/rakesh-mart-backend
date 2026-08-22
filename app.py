@@ -214,6 +214,8 @@ def process_rows(notif_type, rows, enabled, image_url, today_str, current_hm, se
         if not (is_now or is_exact_time):
             continue
 
+        # Guard: don't even attempt (or spam logs) if there are clearly no
+        # subscribers yet — still counts as a "not delivered" cycle below.
         payload = {
             'type': notif_type,
             'title': title,
@@ -226,14 +228,23 @@ def process_rows(notif_type, rows, enabled, image_url, today_str, current_hm, se
         success_count, fail_count = push_to_all(payload)
         log.info(f"[{notif_type.upper()}] row={row} scheduled={time_val} now={current_hm} sent={success_count} failed={fail_count}")
 
-        if success_count > 0 or (success_count == 0 and fail_count == 0):
-            # mark as sent locally immediately (protects against restart before sheet write completes)
+        # FIX (root cause of "Done in sheet but no notification received"):
+        # Only mark Done when at least one subscriber ACTUALLY received the push.
+        # Previously, success_count == 0 AND fail_count == 0 (i.e. zero
+        # registered tokens) was also marking the row Done — so if the
+        # tokens.json store was empty (e.g. after a Render restart wiped it),
+        # the sheet showed "Done" even though nobody got the notification,
+        # and it would never retry.
+        if success_count > 0:
             save_sent_id(notif_id)
             ok = mark_done_in_sheet(notif_type, row)
             if not ok:
                 log.error(f"[{notif_type.upper()}] row={row} push sent but sheet Done write failed — will not resend today due to local id guard")
         else:
-            log.error(f"[{notif_type.upper()}] row={row} push failed for all subscribers — status left blank, will retry next cycle")
+            if fail_count == 0:
+                log.warning(f"[{notif_type.upper()}] row={row} NOT sent — 0 registered subscribers (tokens=0). Status left blank, will retry next cycle.")
+            else:
+                log.error(f"[{notif_type.upper()}] row={row} push failed for all subscribers — status left blank, will retry next cycle")
 
 def scheduler_tick():
     data = fetch_sched_data()
