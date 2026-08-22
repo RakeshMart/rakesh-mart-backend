@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import hashlib
 import threading
 import logging
 from datetime import datetime, timezone, timedelta
@@ -193,7 +194,7 @@ def mark_done_in_sheet(notif_type, row):
         log.error(f"mark_done_in_sheet network error: {e}")
         return False
 
-def process_rows(notif_type, rows, enabled, image_url, today_str, current_hm, sent_ids):
+def process_rows(notif_type, rows, enabled, today_str, current_hm, sent_ids):
     if not enabled or not rows:
         return
     title = "🎡 Rakesh Mart • Spin" if notif_type == 'spin' else "🔥 Rakesh Mart • Special Offer"
@@ -203,7 +204,16 @@ def process_rows(notif_type, rows, enabled, image_url, today_str, current_hm, se
         row = row_info['row']
         message = row_info['message']
         time_val = str(row_info.get('time', '')).strip().lower()
-        notif_id = f"{notif_type}:{row}:{today_str}"
+        image_url = str(row_info.get('image', '') or '').strip()
+
+        # notif_id is based on the ROW + its CONTENT (message+time+image),
+        # not just row+date. So if you edit the text (e.g. put "now" again
+        # after changing it), it gets treated as a fresh notification and
+        # will be sent again — as long as the sheet's status column (C/G)
+        # is not still "Done" for that row (GAS won't even return the row
+        # otherwise; clear it to blank if you want a resend).
+        content_key = hashlib.sha256(f"{message}|{time_val}|{image_url}".encode('utf-8')).hexdigest()[:12]
+        notif_id = f"{notif_type}:{row}:{content_key}"
 
         if notif_id in sent_ids:
             continue
@@ -214,13 +224,11 @@ def process_rows(notif_type, rows, enabled, image_url, today_str, current_hm, se
         if not (is_now or is_exact_time):
             continue
 
-        # Guard: don't even attempt (or spam logs) if there are clearly no
-        # subscribers yet — still counts as a "not delivered" cycle below.
         payload = {
             'type': notif_type,
             'title': title,
             'body': message,
-            'image': image_url or '',
+            'image': image_url,  # empty string -> service worker sends text-only
             'url': url,
             'notificationId': notif_id
         }
@@ -256,9 +264,9 @@ def scheduler_tick():
     sent_ids = load_sent_ids()
 
     process_rows('spin', data.get('spinRows', []), data.get('spinEnabled', False),
-                 data.get('spinImg', ''), today_str, current_hm, sent_ids)
+                 today_str, current_hm, sent_ids)
     process_rows('offer', data.get('offerRows', []), data.get('offerEnabled', False),
-                 data.get('offerImg', ''), today_str, current_hm, sent_ids)
+                 today_str, current_hm, sent_ids)
 
 def scheduler_loop():
     log.info(f"Scheduler started — polling every {POLL_INTERVAL_SECONDS}s (Asia/Kolkata)")
